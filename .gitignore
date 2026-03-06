@@ -1,0 +1,13 @@
+# Secrets
+.env
+*.pyc
+
+# Large Data & Indices (Do not upload these)
+data/
+indexing/vector_store/
+results/
+__pycache__/
+
+# Local Environment
+venv/
+.vscode/

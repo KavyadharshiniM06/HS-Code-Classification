@@ -1,0 +1,6 @@
+rank-bm25
+sentence-transformers
+numpy
+scikit-learn
+torch
+faiss-cpu
