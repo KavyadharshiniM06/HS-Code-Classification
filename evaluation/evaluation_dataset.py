@@ -1,57 +1,79 @@
 import json
+import csv
 import random
-import re
 
-def introduce_noise(text, noise_level="medium"):
+H6_PATH = "data/H6.json"
+OUTPUT_CSV = "evaluation/evaluation_dataset.csv"
+NUM_SAMPLES = 500
+
+
+def introduce_noise(text):
+
     words = text.split()
-    noisy_words = []
 
-    for w in words:
-        if len(w) <= 3:
-            noisy_words.append(w)
-            continue
+    for i in range(len(words)):
 
-        if noise_level == "low":
-            if random.random() < 0.1:
-                w = w[:-1]  # remove last character
+        if random.random() < 0.3:  # 30% chance to corrupt a word
 
-        elif noise_level == "medium":
-            if random.random() < 0.2:
-                w = w[:-1]
-            if random.random() < 0.2:
-                w = w.replace("e", "", 1)
+            word = list(words[i])
 
-        elif noise_level == "high":
-            if random.random() < 0.3:
-                w = w[:-1]
-            if random.random() < 0.3:
-                w = re.sub(r"[aeiou]", "", w)
+            if len(word) > 3:
 
-        noisy_words.append(w)
+                op = random.choice(["delete", "swap", "replace"])
 
-    return " ".join(noisy_words)
+                if op == "delete":
+                    pos = random.randint(0, len(word)-1)
+                    del word[pos]
+
+                elif op == "swap" and len(word) > 2:
+                    pos = random.randint(0, len(word)-2)
+                    word[pos], word[pos+1] = word[pos+1], word[pos]
+
+                elif op == "replace":
+                    pos = random.randint(0, len(word)-1)
+                    word[pos] = random.choice("abcdefghijklmnopqrstuvwxyz")
+
+                words[i] = "".join(word)
+
+    if random.random() < 0.2:
+        random.shuffle(words)
+
+    return " ".join(words)
 
 
-def create_synthetic_dataset(h6_path, samples=1000, noise_level="medium"):
-    with open(h6_path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
+def generate_dataset():
 
-    dataset = []
+    with open(H6_PATH, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
-    leaf_nodes = [
-        item for item in raw["results"]
-        if item.get("isLeaf") == "1"
-    ]
+    items = data["results"]
 
-    selected = random.sample(leaf_nodes, min(samples, len(leaf_nodes)))
+    # keep only real HS codes
+    items = [x for x in items if x["id"].isdigit()]
 
-    for item in selected:
-        original_text = item["text"]
-        noisy_query = introduce_noise(original_text, noise_level)
+    rows = []
 
-        dataset.append({
+    for _ in range(NUM_SAMPLES):
+
+        item = random.choice(items)
+
+        hs_code = item["id"]
+        description = item["text"]
+
+        noisy_query = introduce_noise(description)
+
+        rows.append({
             "query": noisy_query,
-            "true_hs_code": item["id"]
+            "true_hs_code": hs_code
         })
 
-    return dataset
+    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
+
+        writer = csv.DictWriter(f, fieldnames=["query", "true_hs_code"])
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+if __name__ == "__main__":
+    generate_dataset()
+    print("Noisy evaluation dataset generated successfully.")

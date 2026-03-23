@@ -2,7 +2,7 @@ import json
 import re
 
 from utils.parsing import ReceiptParser
-from utils.llm_cleaner import GeminiCleaner
+from utils.llm_cleaner import GroqCleaner
 
 from retrievers.sparse_retriever import SparseRetriever
 from retrievers.vector_retriever import VectorRetriever
@@ -22,7 +22,7 @@ class ICCARAGPipeline:
         # Preprocessing
         # -----------------------
         self.parser = ReceiptParser()
-        self.cleaner = GeminiCleaner()
+        self.cleaner = GroqCleaner()
 
         # -----------------------
         # Retrieval Components
@@ -87,6 +87,8 @@ class ICCARAGPipeline:
 
             # 2️⃣ LLM Cleaning (semantic normalization)
             cleaned_line = self.cleaner.clean(cleaned_basic)
+            if not cleaned_line:
+                continue
 
             # 3️⃣ Hybrid Retrieval
             retrieved_docs = self.retrieval_pipeline.retrieve(

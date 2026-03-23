@@ -4,3 +4,4 @@ numpy
 scikit-learn
 torch
 faiss-cpu
+groq

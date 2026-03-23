@@ -1,55 +1,137 @@
-import re
-from google import genai
 import os
-API_KEY=os.getenv("API_GEMINI1")
-client = genai.Client(api_key=API_KEY)
+import re
 
-class GeminiCleaner:
-    def __init__(self, model="models/gemini-2.5-flash"):
+from dotenv import load_dotenv
+from groq import Groq
+
+load_dotenv()
+
+API_KEY = os.getenv("GROQ_API_KEY")
+client = Groq(api_key=API_KEY)
+
+
+class GroqCleaner:
+    NON_PRODUCT_PATTERNS = [
+        r"\bthank you\b",
+        r"\bplease come again\b",
+        r"\bgoods sold are not\b",
+        r"\bprivilege card\b",
+        r"\bdocument\b",
+        r"\bdiscount\b",
+        r"\bsubtotal\b",
+        r"\btotal\b",
+        r"\bcash\b",
+        r"\bchange\b",
+        r"\badjustment\b",
+        r"\brounding adjustment\b",
+        r"\bwholesale\b",
+    ]
+
+    ADDRESS_PATTERNS = [
+        r"\bjalan\b",
+        r"\bjohor\b",
+        r"\bselangor\b",
+        r"\bkawasan\b",
+        r"\bperindustrian\b",
+        r"\bseri\b",
+        r"\btaman\b",
+        r"\bno\b",
+        r"\blot\b",
+        r"\b\d{5}\b",
+    ]
+
+    BUSINESS_PATTERNS = [
+        r"\bsdn\b",
+        r"\bbhd\b",
+        r"\benterprise\b",
+        r"\btrading\b",
+    ]
+
+    PRODUCT_KEYWORDS = {
+        "tape",
+        "lamp",
+        "sprayer",
+        "cleaner",
+        "bag",
+        "board",
+        "atta",
+        "oil",
+        "handkerchief",
+        "wash",
+        "wax",
+        "bopp",
+    }
+
+    BAD_OUTPUT_PATTERNS = [
+        r"\bthere is no\b",
+        r"\bplease provide\b",
+        r"\bit seems like\b",
+        r"\bit appears\b",
+        r"\bnot a product\b",
+        r"\baddress\b",
+        r"\bbusiness name\b",
+        r"\bgreeting\b",
+        r"\bstatement\b",
+        r"\bno output\b",
+    ]
+
+    def __init__(self, model="llama-3.1-8b-instant"):
         self.model = model
 
     def clean(self, raw_text: str) -> str:
         """
-        Try to clean with Gemini API; fallback to local cleaning if API fails
+        Normalize a receipt line into a short product phrase.
+        Returns an empty string for obvious non-product lines.
         """
+        normalized = self._normalize_text(raw_text)
+        if not normalized or self._is_non_product_line(normalized):
+            return ""
+
         prompt = f"""
-You are a customs trade text normalization assistant.
+You normalize noisy invoice lines for HS-code retrieval.
 
 Task:
-Convert raw invoice or receipt product text into a short, standardized trade description
-that can be used for HS code retrieval.
+Convert the input into one short lowercase product description.
 
 Rules:
-- Remove prices, quantities, invoice numbers, GST/VAT details, totals,address of the shop
-- Remove brand names and marketing words
-- Preserve the core product meaning
-- Use neutral trade terminology (not HS codes)
-- Do NOT infer or guess the HS chapter or code
-- Do NOT add new product functionality
-- Output ONE concise line only
-- Use lowercase
+- Output only the cleaned product text
+- Do not add labels like "product description:"
+- Do not explain your reasoning
+- Remove prices, totals, invoice ids, tax ids, store messages, addresses, and company names
+- Remove obvious brand or marketing words when they are not the product itself
+- Keep the core merchandise meaning
+- If the text is not a product line, output exactly: skip
 
-Product text:
-{raw_text}
-
-Output:
+Input:
+{normalized}
 """
         try:
-            response = client.models.generate_content(
+            response = client.chat.completions.create(
                 model=self.model,
-                contents=prompt,
-                config={"temperature": 0.2, "max_output_tokens": 60}
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Return only a short cleaned product phrase or skip.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0,
+                max_completion_tokens=40,
             )
-            # check if response is None or empty
-            if response is None or not hasattr(response, "text") or not response.text:
-                raise ValueError("Gemini returned no text")
+            if (
+                response is None
+                or not getattr(response, "choices", None)
+                or not response.choices[0].message.content
+            ):
+                raise ValueError("Groq returned no text")
 
-            return response.text.strip().lower()
+            cleaned = self._postprocess_output(response.choices[0].message.content)
+            if cleaned:
+                return cleaned
         except Exception:
-            # fallback: simple regex-based cleaning
-            text = re.sub(r"[\d\.,₹$]", "", raw_text)
-            text = re.sub(r"MRP|GSTIN|TOTAL|Invoice|Batch|HSN", "", text, flags=re.I)
-            return text.lower().strip()
+            pass
+
+        return self._local_clean(normalized)
 
     def clean_lines(self, raw_invoice: str) -> list:
         """
@@ -65,4 +147,110 @@ Output:
                 cleaned_lines.append(cleaned)
         return cleaned_lines
 
+    def _normalize_text(self, text: str) -> str:
+        text = str(text or "").strip()
+        text = text.replace("”", '"').replace("“", '"').replace("’", "'")
+        text = re.sub(r"\s+", " ", text)
+        return text
 
+    def _is_non_product_line(self, text: str) -> bool:
+        lower = text.lower()
+        if not re.search(r"[a-z]", lower):
+            return True
+
+        if any(re.search(pattern, lower) for pattern in self.NON_PRODUCT_PATTERNS):
+            return True
+
+        address_hits = sum(bool(re.search(pattern, lower)) for pattern in self.ADDRESS_PATTERNS)
+        business_hits = sum(bool(re.search(pattern, lower)) for pattern in self.BUSINESS_PATTERNS)
+        product_hits = sum(keyword in lower for keyword in self.PRODUCT_KEYWORDS)
+
+        if lower.startswith("(") and lower.endswith(")") and product_hits == 0:
+            return True
+
+        if address_hits >= 2 and product_hits == 0:
+            return True
+
+        if business_hits >= 1 and product_hits == 0:
+            return True
+
+        if len(lower.split()) >= 3 and product_hits == 0 and address_hits >= 1:
+            return True
+
+        return False
+
+    def _postprocess_output(self, text: str) -> str:
+        cleaned = str(text or "").strip().lower()
+        cleaned = cleaned.replace('"', "").replace("'", "")
+        cleaned = re.sub(r"^product description\s*:\s*", "", cleaned)
+        cleaned = re.sub(r"^cleaned product text\s*:\s*", "", cleaned)
+        cleaned = cleaned.splitlines()[0].strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = re.sub(r"^[\W_]+|[\W_]+$", "", cleaned)
+
+        if cleaned == "skip":
+            return ""
+
+        if any(re.search(pattern, cleaned) for pattern in self.BAD_OUTPUT_PATTERNS):
+            return ""
+
+        return self._local_clean(cleaned)
+
+    def _local_clean(self, text: str) -> str:
+        lower = text.lower()
+        if self._is_non_product_line(lower):
+            return ""
+
+        lower = re.sub(r"\b(?:gstin|invoice|batch|hsn|qty|quantity|subtotal|total|amount)\b", " ", lower)
+        lower = re.sub(r"[^a-z0-9#\-/\. ]", " ", lower)
+        lower = re.sub(r"[/#]+", " ", lower)
+
+        tokens = []
+        stopwords = {
+            "mrp",
+            "gst",
+            "tax",
+            "card",
+            "document",
+            "discount",
+            "thank",
+            "you",
+            "please",
+            "again",
+            "goods",
+            "sold",
+            "return",
+            "returnap",
+            "retur",
+            "johor",
+            "selangor",
+            "jalan",
+            "kawasan",
+            "perindustrian",
+            "seri",
+            "sdn",
+            "bhd",
+        }
+        for token in lower.split():
+            if token in stopwords:
+                continue
+            token = token.strip("-.")
+            if not token:
+                continue
+            if re.fullmatch(r"\d+(?:\.\d+)?", token):
+                continue
+            if re.fullmatch(r"\d+(?:\.\d+)?(?:mm|cm|m|ml|l|kg|g|pcs)", token):
+                tokens.append(token)
+                continue
+            if re.search(r"[a-z]", token):
+                if len(token) == 1:
+                    continue
+                tokens.append(token)
+
+        cleaned = " ".join(tokens)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+        if self._is_non_product_line(cleaned):
+            return ""
+
+        return cleaned
