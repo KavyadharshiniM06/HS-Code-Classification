@@ -26,6 +26,7 @@ class ReceiptParser:
     def parse(self, raw_text: str) -> List[str]:
         lines = raw_text.splitlines()
         cleaned = []
+        buffer = ""
 
         for line in lines:
             line = line.strip().upper()
@@ -36,8 +37,21 @@ class ReceiptParser:
                 continue
 
             if self._is_candidate_text(line):
+
+                # merge short fragments
+                if len(line.split()) <= 2:
+                    buffer = f"{buffer} {line}".strip()
+                    continue
+
+                if buffer:
+                    line = f"{buffer} {line}"
+                    buffer = ""
+
                 cleaned.append(line)
 
+        if buffer:
+            cleaned.append(buffer)
+        cleaned = list(dict.fromkeys(cleaned))
         return cleaned
 
     # --------------------------------------------------
@@ -52,17 +66,32 @@ class ReceiptParser:
     
     def _is_noise(self, text: str) -> bool:
         for pattern in self.noise_patterns:
-            if re.match(pattern, text):
+            if re.search(pattern, text):
                 return True
         return False
 
     def _is_candidate_text(self, text: str) -> bool:
         """
         Heuristic:
-        Keep alphabetic-heavy lines (product descriptions)
+        Keep lines that look like product descriptions, even when they lack explicit units.
         """
         alpha_ratio = sum(c.isalpha() for c in text) / max(len(text), 1)
-    # Must have letters and at least some digits (e.g., size, volume) OR known product keywords
+        word_count = len(text.split())
+        has_letters = any(c.isalpha() for c in text)
         has_digits = any(c.isdigit() for c in text)
-        has_keywords = any(k in text.lower() for k in ["ml", "l", "cm", "board", "tape", "sprayer", "cleaner"])
-        return alpha_ratio > 0.4 and (has_digits or has_keywords)
+        has_keywords = any(
+    k in text.lower() for k in [
+        "ml","l","cm","mm","kg","g",
+        "board","tape","sprayer","cleaner",
+        "glass","plastic","metal",
+        "cable","wire","battery",
+        "oil","filter","valve",
+        "machine","tool","kit"
+    ]
+)
+        if not has_letters or word_count < 2:
+            return False
+
+        # Accept any alphabetic-heavy line with at least two words,
+        # or if it contains explicit product-related keywords.
+        return alpha_ratio > 0.35 or has_digits or has_keywords

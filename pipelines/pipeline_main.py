@@ -16,7 +16,7 @@ from pipelines.llm_wrapper import LocalLLM
 
 class ICCARAGPipeline:
 
-    def __init__(self, h6_path, faiss_index_path, meta_path, alpha=0.6):
+    def __init__(self, h6_path, faiss_index_path, meta_path, alpha=0.25):
 
         # -----------------------
         # Preprocessing
@@ -35,7 +35,7 @@ class ICCARAGPipeline:
         # -----------------------
         # RAG Components
         # -----------------------
-        self.augmenter = ContextAugmenter(max_docs=5)
+        self.augmenter = ContextAugmenter(max_docs=6)
         self.llm = LocalLLM()
         self.generator = HSCodeGenerator(self.llm)
 
@@ -91,11 +91,36 @@ class ICCARAGPipeline:
                 continue
 
             # 3️⃣ Hybrid Retrieval
-            retrieved_docs = self.retrieval_pipeline.retrieve(
-                cleaned_line,
-                top_k=top_k
-            )
-            print(f"DEBUG: Retrieved keys are: {retrieved_docs[0].keys()}")
+            retrieved_docs = self.retrieval_pipeline.retrieve(cleaned_line, top_k=top_k)
+            filtered_docs = self._filter_low_quality_candidates(cleaned_line, retrieved_docs)
+            # fallback to sparse if retrieval quality is low
+            if not filtered_docs or filtered_docs[0]["score"] < 0.03:
+                
+                sparse_docs = RetrievalPipeline(self.sparse).retrieve(
+                    cleaned_line,
+                    top_k=top_k
+                )
+
+                if sparse_docs:
+                    retrieved_docs = sparse_docs
+                else:
+                    retrieved_docs = filtered_docs or retrieved_docs
+            if filtered_docs:
+                retrieved_docs = filtered_docs
+            elif retrieved_docs:
+                # Keep raw retrieval results when filtering removes everything,
+                # since a high-scoring match may still be useful for the LLM.
+                pass
+            else:
+                results_per_product.append({
+                    "raw_line": line,
+                    "cleaned_line": cleaned_line,
+                    "prediction": None,
+                    "confidence": 0.0,
+                    "reasoning": "No retrieval candidates found; showing raw line.",
+                    "retrieved_candidates": []
+                })
+                continue
             # 4️⃣ Attach description text to retrieved docs
             for doc in retrieved_docs:
                 code = doc["doc_id"]
@@ -110,6 +135,16 @@ class ICCARAGPipeline:
                 augmented_context=context
             )
 
+            # Reject hallucinated HS codes that are not present in the retrieved candidates.
+            candidate_codes = {doc["doc_id"] for doc in retrieved_docs}
+            if generation_result["prediction"] and generation_result["prediction"] not in candidate_codes:
+                generation_result["prediction"] = None
+                generation_result["confidence"] = 0.0
+                generation_result["reasoning"] = (
+                    generation_result["reasoning"] +
+                    "\n[NOTE] Predicted code was not supported by retrieved candidates."
+                )
+
             results_per_product.append({
                 "raw_line": line,
                 "cleaned_line": cleaned_line,
@@ -120,3 +155,27 @@ class ICCARAGPipeline:
             })
 
         return results_per_product
+
+    def _filter_low_quality_candidates(self, query: str, retrieved_docs: list):
+        if not retrieved_docs:
+            return []
+
+        top_score = retrieved_docs[0]["score"]
+        
+
+        query_tokens = {
+            token for token in re.findall(r"[a-z0-9]+", query.lower())
+            if len(token) > 2 and not token.isdigit()
+        }
+
+        filtered = []
+        for doc in retrieved_docs:
+            doc_tokens = {
+                token for token in re.findall(r"[a-z0-9]+", doc.get("text", "").lower())
+                if len(token) > 2 and not token.isdigit()
+            }
+            if query_tokens and not (query_tokens & doc_tokens) and doc["score"] < top_score - 0.03:
+                continue
+            filtered.append(doc)
+
+        return filtered[:3]

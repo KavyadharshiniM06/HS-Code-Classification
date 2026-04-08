@@ -67,6 +67,15 @@ To run the pipeline on the SROIE dataset and generate a results CSV:
 ```bash
 python sroie_loader.py
 ```
+
+To launch the Streamlit demo app:
+
+```bash
+streamlit run app.py
+```
+
+If you want to upload receipt/invoice images, install Tesseract OCR and ensure it is available on your system PATH.
+
 The output will be saved in results/sroie_icca_rag_results_new.csv, including:
 
 * **Raw Line**: Original OCR text.

@@ -9,6 +9,22 @@ class ContextAugmenter:
         self.min_score = min_score
         self.include_metadata = include_metadata
 
+    def _remove_duplicates(self, docs):
+        seen = set()
+        unique = []
+
+        for doc in docs:
+            text = doc["text"].lower()
+
+            # simple duplicate check
+            key = " ".join(text.split()[:6])
+
+            if key not in seen:
+                unique.append(doc)
+                seen.add(key)
+
+        return unique
+
     def build_context(self, retrieved_docs):
         """
         retrieved_docs: output from retrieval.py
@@ -16,9 +32,13 @@ class ContextAugmenter:
         """
 
         filtered = [
-            d for d in retrieved_docs
-            if d["score"] >= self.min_score
-        ][:self.max_docs]
+                d for d in retrieved_docs
+                if d["score"] >= self.min_score
+            ]
+
+        filtered = self._remove_duplicates(filtered)
+
+        filtered = filtered[:self.max_docs]
 
         if not filtered:
             return ""
@@ -34,13 +54,16 @@ class ContextAugmenter:
         """
         Internal formatter for each retrieved document
         """
-
+        source = doc.get("source", "hybrid")
         if self.include_metadata:
+            confidence = round(doc["score"] * 100, 2)
+
             return (
                 f"[HS CODE: {doc['doc_id']} | "
-                f"RANK: {doc['rank']} | "
-                f"SCORE: {doc['score']}]\n"
-                f"{doc['text']}"
+                f"SOURCE: {source} | "
+                f"CONFIDENCE: {confidence}% | "
+                f"RANK: {doc['rank']}]\n"
+                f"Description: {doc['text']}"
             )
 
         return doc["text"]

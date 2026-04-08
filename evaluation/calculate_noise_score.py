@@ -27,7 +27,7 @@ def calculate_denoising_metrics(file_path):
     print("--- OVERALL SYSTEM PERFORMANCE ---")
     print(f"1. Noise Reduction Ratio:    {noise_reduction_pct:.2f}%")
     print(f"2. Semantic Confidence Gain: {confidence_gain_pct:.2f}%")
-    print(f"3. Accuracy Shift (Top-1):   {raw_acc:.2f}% -> {clean_acc:.2f}%")
+    #print(f"3. Accuracy Shift (Top-1):   {raw_acc:.2f}% -> {clean_acc:.2f}%")
     
     return noise_reduction_pct, confidence_gain_pct
 

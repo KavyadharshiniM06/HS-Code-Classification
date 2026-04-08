@@ -11,7 +11,7 @@ H6_PATH = "data/H6.json"
 FAISS_INDEX_PATH = "indexing/vector_store/h6.faiss"
 META_PATH = "indexing/vector_store/h6_meta.json"
 
-NUM_IMAGES = 5
+NUM_IMAGES = 10
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -44,7 +44,7 @@ with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as csvfile:
             raw_text = pytesseract.image_to_string(image)
 
             # Predict returns a list of dictionaries per product line
-            results = pipeline.predict(raw_text, top_k=3)
+            results = pipeline.predict(raw_text, top_k=5)
 
             for item in results:
                 retrieved_docs = item.get("retrieved_candidates", [])

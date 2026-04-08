@@ -36,6 +36,8 @@ def evaluate(retriever, dataset, top_k=5):
 
     recall_at_1 = 0
     recall_at_k = 0
+    precision_at_1 = 0
+    precision_at_k = 0
     mrr_total = 0
 
     for sample in dataset:
@@ -51,7 +53,10 @@ def evaluate(retriever, dataset, top_k=5):
             ranked_codes = []
 
             for item in results:
-                code = item[0] if isinstance(item, (list, tuple)) else item
+                if isinstance(item, dict):
+                    code = item.get("doc_id") or item.get("hs_code") or item
+                else:
+                    code = item[0] if isinstance(item, (list, tuple)) else item
                 ranked_codes.append(extract_hs_code(code))
         elif hasattr(retriever, "retrieve"):
 
@@ -63,9 +68,11 @@ def evaluate(retriever, dataset, top_k=5):
 
         if ranked_codes and ranked_codes[0] == true_code:
             recall_at_1 += 1
+            precision_at_1 += 1
 
         if true_code in ranked_codes:
             recall_at_k += 1
+            precision_at_k += 1
             rank = ranked_codes.index(true_code) + 1
             mrr_total += 1.0 / rank
 
@@ -74,6 +81,8 @@ def evaluate(retriever, dataset, top_k=5):
     return {
         "Recall@1": recall_at_1 / n,
         f"Recall@{top_k}": recall_at_k / n,
+        "Precision@1": precision_at_1 / n,
+        f"Precision@{top_k}": precision_at_k / n / top_k,
         "MRR": mrr_total / n
     }
 

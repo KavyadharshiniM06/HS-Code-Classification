@@ -5,7 +5,8 @@ class LocalLLM:
     def __init__(
         self,
         model_name="google/flan-t5-base",
-        max_new_tokens=64
+        max_new_tokens=64,
+
     ):
         self.max_new_tokens = max_new_tokens
 
@@ -15,6 +16,7 @@ class LocalLLM:
             dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             device_map="auto" if torch.cuda.is_available() else None
         )
+        torch.backends.cuda.matmul.allow_tf32 = True
 
         self.model.eval()
 
@@ -24,16 +26,26 @@ class LocalLLM:
             return_tensors="pt",
             truncation=True
         )
+        if torch.cuda.is_available():
+            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
                 max_new_tokens=max_tokens or self.max_new_tokens,
+                num_beams=4,
+                early_stopping=True,
                 do_sample=temperature > 0,
                 temperature=temperature if temperature > 0 else None
             )
 
-        return self.tokenizer.decode(
-            outputs[0],
-            skip_special_tokens=True
-        )
+        output = self.tokenizer.decode(
+        outputs[0],
+        skip_special_tokens=True
+    )
+
+        # remove prompt if repeated
+        if "Answer:" in output:
+            output = output.split("Answer:")[-1].strip()
+
+        return output.strip()

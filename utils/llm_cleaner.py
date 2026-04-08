@@ -25,6 +25,13 @@ class GroqCleaner:
         r"\badjustment\b",
         r"\brounding adjustment\b",
         r"\bwholesale\b",
+        r"\bcustomer service\b",
+        r"\bhotline\b",
+        r"\bfeedback\b",
+        r"\bdownload\b",
+        r"\bgoogle play\b",
+        r"\bapp store\b",
+        r"\blicensee\b",
     ]
 
     ADDRESS_PATTERNS = [
@@ -37,6 +44,9 @@ class GroqCleaner:
         r"\btaman\b",
         r"\bno\b",
         r"\blot\b",
+        r"\blevel\b",
+        r"\bbangunan\b",
+        r"\btel\b",
         r"\b\d{5}\b",
     ]
 
@@ -60,6 +70,22 @@ class GroqCleaner:
         "wash",
         "wax",
         "bopp",
+        "windshield",
+        "glass",
+        "automotive",
+        "plastic",
+        "rubber",
+        "electronic",
+        "cable",
+        "battery",
+        "motor",
+        "filter",
+        "valve",
+        "pipe",
+        "steel",
+        "aluminium",
+        "machine",
+        "tool",
     }
 
     BAD_OUTPUT_PATTERNS = [
@@ -73,6 +99,11 @@ class GroqCleaner:
         r"\bgreeting\b",
         r"\bstatement\b",
         r"\bno output\b",
+        r"\bcustomer service\b",
+        r"\bfeedback\b",
+        r"\bdownload\b",
+        r"\bgoogle play\b",
+        r"\bapp store\b",
     ]
 
     def __init__(self, model="llama-3.1-8b-instant"):
@@ -141,12 +172,43 @@ Input:
         lines = raw_invoice.splitlines()
         products = [line.strip() for line in lines if line.strip()]
         cleaned_lines = []
+        buffer = ""
+
         for product in products:
             cleaned = self.clean(product)
-            if cleaned:
-                cleaned_lines.append(cleaned)
-        return cleaned_lines
 
+            if not cleaned:
+                continue
+
+            # merge short fragments
+            if len(cleaned.split()) <= 2:
+                buffer = f"{buffer} {cleaned}".strip()
+                continue
+
+            if buffer:
+                cleaned = f"{buffer} {cleaned}"
+                buffer = ""
+
+            cleaned_lines.append({
+                "text": cleaned,
+                "confidence": self.confidence(cleaned)
+            })
+
+            if buffer:
+                cleaned_lines.append(buffer)
+                return cleaned_lines
+    
+    def confidence(self, text):
+        tokens = text.split()
+
+        if len(tokens) >= 3:
+            return 0.9
+        elif len(tokens) == 2:
+            return 0.7
+        elif len(tokens) == 1:
+            return 0.5
+        return 0.3
+    
     def _normalize_text(self, text: str) -> str:
         text = str(text or "").strip()
         text = text.replace("”", '"').replace("“", '"').replace("’", "'")
@@ -201,6 +263,8 @@ Input:
         if self._is_non_product_line(lower):
             return ""
 
+        lower = re.sub(r"\bwindshiled\b", "windshield", lower)
+        lower = re.sub(r"\bboaro\b", "board", lower)
         lower = re.sub(r"\b(?:gstin|invoice|batch|hsn|qty|quantity|subtotal|total|amount)\b", " ", lower)
         lower = re.sub(r"[^a-z0-9#\-/\. ]", " ", lower)
         lower = re.sub(r"[/#]+", " ", lower)
@@ -217,11 +281,24 @@ Input:
             "you",
             "please",
             "again",
+            "customer",
+            "service",
+            "hotline",
+            "feedback",
+            "download",
+            "google",
+            "play",
+            "app",
+            "store",
+            "licensee",
             "goods",
             "sold",
             "return",
             "returnap",
             "retur",
+            "bangunan",
+            "level",
+            "tel",
             "johor",
             "selangor",
             "jalan",
@@ -249,7 +326,7 @@ Input:
 
         cleaned = " ".join(tokens)
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
-
+        
         if self._is_non_product_line(cleaned):
             return ""
 
