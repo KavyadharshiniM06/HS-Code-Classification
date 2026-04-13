@@ -1,8 +1,15 @@
-from pipelines.pipeline_main import ICCARAGPipeline
+"""
+ICCA-RAG main entry point (enhanced pipeline)
+=============================================
+Runs the full enhanced pipeline on a sample receipt.
+"""
+
+from pipelines.enhanced_pipeline import EnhancedICCARAGPipeline
 
 H6_PATH = "data/H6.json"
 FAISS_INDEX_PATH = "indexing/vector_store/h6.faiss"
 META_PATH = "indexing/vector_store/h6_meta.json"
+ENRICHED_FAISS_PATH = "indexing/vector_store/h6_enriched.faiss"  # optional
 
 RECEIPT = """
 ENGINE OIL 4L
@@ -13,24 +20,46 @@ MOBILE PHONE CHARGER FAST 20W
 TRACTOR DIESEL ENGINE PART
 LED BULB 9W COOL WHITE
 AIR FILTER FOR DIESEL ENGINE
+COTTON T-SHIRT MEN XL
+STAINLESS STEEL COOKWARE SET
 """
 
+
 def main():
-    print("⏳ Initializing ICCA-RAG pipeline...")
-    pipeline = ICCARAGPipeline(H6_PATH, FAISS_INDEX_PATH, META_PATH)
+    import os
+    enriched = ENRICHED_FAISS_PATH if os.path.exists(ENRICHED_FAISS_PATH) else None
+
+    print("⏳ Initializing enhanced ICCA-RAG pipeline...")
+    pipeline = EnhancedICCARAGPipeline(
+        h6_path=H6_PATH,
+        faiss_index_path=FAISS_INDEX_PATH,
+        meta_path=META_PATH,
+        enriched_index_path=enriched,
+        confidence_threshold=0.55,
+        max_reformulation_iters=3,
+    )
 
     print("⏳ Running multi-line prediction...")
-    results_per_product = pipeline.predict(RECEIPT, top_k=5)
+    results = pipeline.predict(RECEIPT, top_k=5)
 
-    for item in results_per_product:
-        print(f"\n🧾 Cleaned Product: {item['product']}")
-        if item['predictions']:
-            print("Top HS Code Predictions:")
-            for r in item['predictions']:
-                print(f"  {r['hs_code']} | score: {r['score']} | {r['description']}")
+    for item in results:
+        print(f"\n🧾 Raw:     {item['raw_line']}")
+        print(f"   Cleaned: {item['cleaned_line']}")
+        if item.get("reformulated"):
+            print(f"   ↻ Query was reformulated")
+        if item["prediction"]:
+            print(f"   ✅ Prediction: {item['prediction']}  (conf: {item['confidence']:.2f})")
         else:
-            print("  No HS codes found.")
-        print("-" * 60)
+            print(f"   ❌ No prediction")
+        if item["retrieved_candidates"]:
+            print("   Top candidates:")
+            for r in item["retrieved_candidates"][:3]:
+                print(
+                    f"     {r['doc_id']} | {r['score']:.3f} | "
+                    f"{r['text'][:60]}..."
+                )
+        print("-" * 70)
+
 
 if __name__ == "__main__":
     main()

@@ -37,7 +37,6 @@ class SparseRetriever:
 
         scores = self.bm25.get_scores(tokens)
 
-        # Normalize scores
         max_score = max(scores) if scores.any() else 1
         scores = [s / max_score for s in scores]
 
@@ -57,26 +56,17 @@ class SparseRetriever:
 
     def _tokenize(self, text: str):
         normalized = str(text or "").lower()
-
-        # Clean text
         normalized = normalized.replace("&", " ")
         normalized = re.sub(r"[^a-z0-9\s\-/\.]", " ", normalized)
         normalized = normalized.replace("/", " ").replace("-", " ")
 
         tokens = []
-
         for token in re.findall(r"[a-z0-9\.]+", normalized):
-
             token = token.strip(".")
-
-            # Remove short tokens
             if len(token) <= 1:
                 continue
-
-            # Remove pure numbers
             if token.isdigit():
                 continue
-
             tokens.append(token)
 
         return tokens

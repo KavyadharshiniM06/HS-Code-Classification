@@ -255,9 +255,27 @@ hr { border-color: var(--border) !important; }
 
 # ── Helper: lazy pipeline loader ───────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
-def load_pipeline(h6_path, faiss_path, meta_path, alpha):
-    from pipelines.pipeline_main import ICCARAGPipeline
-    return ICCARAGPipeline(h6_path, faiss_path, meta_path, alpha=alpha)
+def load_pipeline(
+    h6_path,
+    faiss_path,
+    meta_path,
+    enriched_faiss_path,
+    confidence_threshold,
+    max_reformulations,
+):
+    from pipelines.enhanced_pipeline import EnhancedICCARAGPipeline
+
+    enriched_path = (
+        enriched_faiss_path if os.path.exists(enriched_faiss_path) else None
+    )
+    return EnhancedICCARAGPipeline(
+        h6_path=h6_path,
+        faiss_index_path=faiss_path,
+        meta_path=meta_path,
+        enriched_index_path=enriched_path,
+        confidence_threshold=confidence_threshold,
+        max_reformulation_iters=max_reformulations,
+    )
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
@@ -273,23 +291,33 @@ with st.sidebar:
     h6_path = st.text_input("H6 JSON path", value="data/H6.json")
     faiss_path = st.text_input("FAISS index path", value="indexing/vector_store/h6.faiss")
     meta_path = st.text_input("Metadata JSON path", value="indexing/vector_store/h6_meta.json")
+    enriched_faiss_path = st.text_input(
+        "Enriched FAISS path",
+        value="indexing/vector_store/h6_enriched.faiss",
+        help="Optional ontology-enriched index for the enhanced retriever.",
+    )
 
     st.markdown("---")
-    st.markdown("### Retrieval Settings")
-    alpha = st.slider(
-        "Hybrid Alpha (0 = pure BM25, 1 = pure Vector)",
-        min_value=0.0, max_value=1.0, value=0.6, step=0.05,
-        help="Controls the blend between sparse (BM25) and dense (vector) retrieval."
+    st.markdown("### Enhanced Retrieval Settings")
+    confidence_threshold = st.slider(
+        "Confidence threshold",
+        min_value=0.30, max_value=0.90, value=0.55, step=0.05,
+        help="Below this score, the adaptive reformulator tries alternate phrasings.",
+    )
+    max_reformulations = st.slider(
+        "Max reformulations",
+        min_value=1, max_value=5, value=3, step=1,
+        help="Maximum reformulation attempts per detected product line.",
     )
     top_k = st.slider("Top-K results", min_value=1, max_value=10, value=5)
 
     st.markdown("---")
     st.markdown("""
     <div style='font-size:12px; color:#7a8099; line-height:1.6;'>
-    <b style='color:#e8eaf0;'>Ablation Results</b><br>
-    BM25 Recall@1: <b style='color:#00e5ff;'>71.0%</b><br>
-    Vector Recall@1: <b style='color:#00e5ff;'>72.8%</b><br>
-    Best Hybrid α=0.8: <b style='color:#00c896;'>72.4%</b>
+    <b style='color:#e8eaf0;'>Enhanced Pipeline</b><br>
+    Vector-first retrieval with BM25 rescue<br>
+    Adaptive query reformulation for weak matches<br>
+    Optional enriched index support
     </div>
     """, unsafe_allow_html=True)
 
@@ -306,7 +334,14 @@ if "results" not in st.session_state:
 if pipeline_ready:
     with st.spinner("Loading models and index…"):
         try:
-            st.session_state.pipeline = load_pipeline(h6_path, faiss_path, meta_path, alpha)
+            st.session_state.pipeline = load_pipeline(
+                h6_path,
+                faiss_path,
+                meta_path,
+                enriched_faiss_path,
+                confidence_threshold,
+                max_reformulations,
+            )
             st.success("✅ Pipeline loaded!")
         except Exception as e:
             st.error(f"❌ Failed to load pipeline: {e}")
@@ -436,8 +471,11 @@ AIR FILTER FOR DIESEL ENGINE"""
                 pred = item.get("prediction") or "—"
                 raw = item.get("raw_line", "")
                 cleaned = item.get("cleaned_line", "")
+                confidence = float(item.get("confidence", 0) or 0)
                 reasoning = item.get("reasoning", "")
                 candidates = item.get("retrieved_candidates", [])
+                reformulated = item.get("reformulated", False)
+                reformulation_trace = item.get("reformulation_trace", [])
 
                 st.markdown(f"""
                 <div class='result-item'>
@@ -448,21 +486,27 @@ AIR FILTER FOR DIESEL ENGINE"""
                             </div>
                             <div style='font-weight:500; margin-bottom:6px;'>{raw[:80]}{"…" if len(raw)>80 else ""}</div>
                             <span class='badge'>Cleaned</span>
+                            {"<span class='badge badge-purple'>Reformulated</span>" if reformulated else ""}
                             <span style='font-size:13px; color:#a0aab8;'>{cleaned[:60]}{"…" if len(cleaned)>60 else ""}</span>
                         </div>
                         <div style='text-align:right; min-width:110px;'>
                             <div class='hs-code'>{pred}</div>
+                            <div style='font-size:12px; color:#7a8099; margin-top:6px;'>conf: {confidence:.2f}</div>
                         </div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
 
                 with st.expander(f"🔎 Candidates & reasoning — Product {i}"):
+                    if reformulated:
+                        st.markdown("**Adaptive reformulation triggered for this line.**")
+                        if reformulation_trace:
+                            st.code("\n".join(str(step) for step in reformulation_trace), language="text")
+
                     if candidates:
                         st.markdown("**Top retrieved candidates:**")
-                        for doc in candidates[:5]:
-                            rank = doc.get("rank", "?")
-                            code = doc.get("doc_id", "")
+                        for rank, doc in enumerate(candidates[:5], 1):
+                            code = doc.get("doc_id") or doc.get("hs_code", "")
                             score = doc.get("score", 0)
                             text = doc.get("text", "")
                             st.markdown(f"""

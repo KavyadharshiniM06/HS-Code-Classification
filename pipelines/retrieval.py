@@ -3,17 +3,14 @@ class RetrievalPipeline:
         self.retriever = retriever
 
     def retrieve(self, query, top_k=5):
-
         raw_results = self.retriever.search(query, top_k=top_k)
 
         scores = [r["score"] for r in raw_results]
         max_score = max(scores) if scores else 1.0
 
         formatted_results = []
-
         for rank, r in enumerate(raw_results, start=1):
-
-            normalized_score = r["score"] / max_score
+            normalized_score = r["score"] / max_score if max_score > 0 else 0
 
             confidence = (
                 "high" if normalized_score > 0.7

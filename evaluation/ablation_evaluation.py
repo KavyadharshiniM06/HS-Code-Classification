@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from retrievers.sparse_retriever import SparseRetriever
 # from retrievers.vector_retriever import VectorRetriever
-from retrievers.hybrid_retriever import HybridRetriever
+from retrievers.enhanced_hybrid_retriever import HybridRetriever
 from retrievers.keyword_retriever import KeywordRetriever
 from evaluation.evaluation_retrieval import evaluate # Reuse your eval logic
 

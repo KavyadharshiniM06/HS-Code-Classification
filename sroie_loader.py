@@ -2,7 +2,7 @@ import os
 import csv
 import pytesseract
 from PIL import Image
-from pipelines.pipeline_main import ICCARAGPipeline
+from pipelines.enhanced_pipeline import ICCARAGPipeline
 
 IMAGE_DIR = r"data\SROIE2019\train\img"
 OUTPUT_CSV = "results/sroie_icca_rag_results_new.csv"
