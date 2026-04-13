@@ -31,11 +31,7 @@ class VectorRetriever:
         scores, indices = self.index.search(query_emb, candidate_k)
 
         # convert distance → similarity
-        scores = -scores
-
-        # normalize scores
-        max_score = np.max(scores) if np.max(scores) != 0 else 1
-        scores = scores / max_score
+        scores = self._normalize_dense_scores(-scores.astype("float32", copy=False))
 
         query_tokens = self._tokenize(query)
         head_token = self._head_token(query_tokens)
@@ -100,6 +96,25 @@ class VectorRetriever:
             }
             for item in results
         ]
+
+    def _normalize_dense_scores(self, scores):
+        if scores.size == 0:
+            return scores
+
+        normalized = np.zeros_like(scores, dtype=np.float32)
+        finite_mask = np.isfinite(scores)
+        if not np.any(finite_mask):
+            return normalized
+
+        finite_scores = scores[finite_mask]
+        max_abs_score = float(np.max(np.abs(finite_scores)))
+
+        if max_abs_score <= 1e-8:
+            normalized[finite_mask] = finite_scores
+            return normalized
+
+        normalized[finite_mask] = finite_scores / max_abs_score
+        return normalized
 
     def _tokenize(self, text: str):
         tokens = []

@@ -1,0 +1,27 @@
+ TDE Distribution (Full System):
+  exact_match (tde=0)                 0.700  ████████████████████████████
+  heading_error (tde=1)               0.018
+  chapter_error (tde=2)               0.056  ██
+  chapter_miss  (tde=3)               0.226  █████████
+
+=================================================================
+  LaTeX Table (copy into your IEEE paper):
+=================================================================
+\begin{table}[t]
+\centering
+\caption{Ablation Study: Retrieval Performance on HS Code Dataset}
+\label{tab:ablation}
+\begin{tabular}{lcccccc}
+\hline
+Configuration & Acc@1 & Acc@5 & MRR & NDCG@5 & WHAcc & MTD \\
+\hline
+BM25 (baseline) & 0.710 & 0.808 & 0.756 & 0.769 & 0.754 & 0.692 \\
+Vector (baseline) & 0.794 & 0.814 & 0.804 & 0.807 & 0.803 & 0.582 \\
+Hybrid α=0.6 (existing) & 0.736 & 0.810 & 0.771 & 0.781 & 0.769 & 0.660 \\
+Hierarchical (no enrichment) & 0.730 & 0.780 & 0.754 & 0.758 & 0.749 & 0.734 \\
+Hierarchical + Ontology Enrichment & 0.700 & 0.764 & 0.728 & 0.735 & 0.723 & 0.808 \\
+\textbf{Full System (all contributions)} & \textbf{0.700} & 0.764 & 0.728 & 0.735 & 0.723 & 0.808 \\
+\hline
+\multicolumn{7}{l}{\footnotesize WHAcc = Weighted HS Accuracy; MTD = Mean Taxonomy Distance (lower is better)}
+\end{tabular}
+\end{table}

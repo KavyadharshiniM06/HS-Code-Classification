@@ -13,6 +13,9 @@ from pipelines.augmentation import ContextAugmenter
 from pipelines.generation import HSCodeGenerator
 from pipelines.llm_wrapper import LocalLLM
 
+from novelty.retrievers.hierarchical_retriever import (
+    HierarchicalRetriever, AdaptiveQueryReformulator
+)
 
 class ICCARAGPipeline:
 
@@ -27,9 +30,15 @@ class ICCARAGPipeline:
         # -----------------------
         # Retrieval Components
         # -----------------------
-        self.sparse = SparseRetriever(h6_path)
-        self.vector = VectorRetriever(faiss_index_path, meta_path)
-        self.hybrid = HybridRetriever(self.sparse, self.vector, alpha)
+        self.hier_retriever = HierarchicalRetriever(
+            faiss_index_path=faiss_index_path,
+            meta_path=meta_path,
+            enriched_index_path="indexing/vector_store/h6_enriched.faiss",
+            alpha_h=0.25,
+            alpha_e=0.40,
+        )
+        self.adaptive = AdaptiveQueryReformulator(self.hier_retriever)
+
         self.retrieval_pipeline = RetrievalPipeline(self.hybrid)
 
         # -----------------------
@@ -91,7 +100,8 @@ class ICCARAGPipeline:
                 continue
 
             # 3️⃣ Hybrid Retrieval
-            retrieved_docs = self.retrieval_pipeline.retrieve(cleaned_line, top_k=top_k)
+            output = self.adaptive.retrieve_with_feedback(cleaned_line, top_k=top_k)
+            retrieved_docs = output["results"]
             filtered_docs = self._filter_low_quality_candidates(cleaned_line, retrieved_docs)
             # fallback to sparse if retrieval quality is low
             if not filtered_docs or filtered_docs[0]["score"] < 0.03:
