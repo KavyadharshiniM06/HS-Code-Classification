@@ -13,18 +13,9 @@ for Harmonized System Code Retrieval"
 """
 
 import json
-import os
-import sys
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
-
-# Allow direct execution via `python novelty/indexing/build_enriched_index.py`
-# by ensuring the repository root is on sys.path.
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
 from novelty.knowledge.ontology_enricher import OntologyEnricher
 
 
