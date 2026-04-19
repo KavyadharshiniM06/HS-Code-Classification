@@ -8,6 +8,10 @@ Key insight from ablation results:
 
 Strategy: Use vector as primary, BM25 as a re-ranking signal only when
 vector confidence is low. Also fuse enriched index when available.
+
+FIX (OOM): Accept a pre-loaded SentenceTransformer via the `model` parameter
+so all retriever configurations in an ablation study share a single model
+instance (~1 GB) instead of each loading their own copy.
 """
 
 import re
@@ -30,6 +34,13 @@ class EnhancedHybridRetriever:
       3. RRF fusion across all query variants and indexes
       4. Token-overlap re-ranking signal
       5. BM25 rescue pass when top vector score < confidence_floor
+
+    Parameters
+    ----------
+    model : SentenceTransformer, optional
+        A pre-loaded model to reuse across multiple retriever instances.
+        Pass this to avoid loading ~1 GB into RAM multiple times during
+        ablation studies. If None, a new model is loaded from `model_name`.
     """
 
     def __init__(
@@ -39,6 +50,7 @@ class EnhancedHybridRetriever:
         h6_path: str,
         enriched_index_path: Optional[str] = None,
         model_name: str = "BAAI/bge-m3",
+        model: Optional[SentenceTransformer] = None,   # ← shared model
         confidence_floor: float = 0.35,
         bm25_rescue_weight: float = 0.15,
         enriched_weight: float = 0.30,
@@ -51,8 +63,11 @@ class EnhancedHybridRetriever:
         self.overlap_boost = overlap_boost
         self.bigram_boost = bigram_boost
 
-        # Load sentence transformer
-        self.model = SentenceTransformer(model_name)
+        # Reuse shared model if provided, otherwise load once from disk
+        if model is not None:
+            self.model = model
+        else:
+            self.model = SentenceTransformer(model_name)
 
         # Load primary FAISS index
         self.base_index = faiss.read_index(faiss_index_path)
@@ -180,8 +195,6 @@ class EnhancedHybridRetriever:
         if top_score < self.confidence_floor:
             bm25_codes = self._bm25_rescue(query, top_k=candidate_k)
             for code, score in bm25_codes.items():
-                # Find meta index for this code
-                # We blend BM25 score into any existing candidate
                 for idx, item in enumerate(self.meta):
                     if item.get("hs_code") == code:
                         if idx in combined_scores:
@@ -233,9 +246,7 @@ class EnhancedHybridRetriever:
         ).astype("float32")
         k = min(k, index.ntotal)
         distances, indices = index.search(emb, k)
-        # HNSW returns L2; convert to cosine-like similarity
         scores = 1.0 - (distances[0] / 2.0)
-        # Normalize to [0, 1]
         mx = scores.max() if scores.max() > 0 else 1.0
         return scores / mx, indices[0]
 
@@ -275,25 +286,20 @@ class EnhancedHybridRetriever:
         tokens = base.split()
         variants = [base]
 
-        # First/last bigrams
         if len(tokens) >= 2:
             variants.append(" ".join(tokens[:2]))
             variants.append(" ".join(tokens[-2:]))
-        # No stopwords version
         stopwords = {"and", "or", "of", "the", "in", "for", "with", "not", "than"}
         content = [t for t in tokens if t not in stopwords and len(t) > 2]
         if content and " ".join(content) != base:
             variants.append(" ".join(content))
-        # Head token (last meaningful word — most specific)
         if content:
             variants.append(content[-1])
-        # First long token (category signal)
         for t in tokens:
             if len(t) > 5:
                 variants.append(t)
                 break
 
-        # Deduplicate while preserving order
         seen = set()
         unique = []
         for v in variants:
