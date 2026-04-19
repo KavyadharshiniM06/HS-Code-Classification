@@ -4,7 +4,7 @@ ICCA-RAG main entry point (enhanced pipeline)
 Runs the full enhanced pipeline on a sample receipt.
 """
 
-from pipelines.enhanced_pipeline import EnhancedICCARAGPipeline
+from pipelines.production_pipeline import ProductionIEEEPipeline  
 
 H6_PATH = "data/H6.json"
 FAISS_INDEX_PATH = "indexing/vector_store/h6.faiss"
@@ -30,7 +30,7 @@ def main():
     enriched = ENRICHED_FAISS_PATH if os.path.exists(ENRICHED_FAISS_PATH) else None
 
     print("⏳ Initializing enhanced ICCA-RAG pipeline...")
-    pipeline = EnhancedICCARAGPipeline(
+    pipeline = ProductionIEEEPipeline (
         h6_path=H6_PATH,
         faiss_index_path=FAISS_INDEX_PATH,
         meta_path=META_PATH,

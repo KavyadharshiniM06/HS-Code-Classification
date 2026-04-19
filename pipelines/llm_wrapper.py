@@ -353,3 +353,47 @@ Input:
             return ""
 
         return cleaned
+    
+class LocalLLM:
+    """
+    Thin wrapper around Groq that satisfies the interface
+    expected by HSCodeGenerator.generate():
+
+        llm.generate(prompt=..., max_tokens=..., temperature=...)
+        → str
+    """
+
+    def __init__(self, model: str = "llama-3.1-8b-instant"):
+        self.model = model
+
+    def generate(
+        self,
+        prompt: str,
+        max_tokens: int = 128,
+        temperature: float = 0.1,
+    ) -> str:
+        try:
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an HS code classification assistant. "
+                            "Follow the answer format exactly."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=temperature,
+                max_completion_tokens=max_tokens,
+            )
+            if (
+                response is None
+                or not getattr(response, "choices", None)
+                or not response.choices[0].message.content
+            ):
+                return ""
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            return ""

@@ -1,4 +1,5 @@
 import streamlit as st
+import html
 import json
 import re
 import os
@@ -476,6 +477,9 @@ AIR FILTER FOR DIESEL ENGINE"""
                 candidates = item.get("retrieved_candidates", [])
                 reformulated = item.get("reformulated", False)
                 reformulation_trace = item.get("reformulation_trace", [])
+                raw_preview = html.escape(raw[:80] + ("…" if len(raw) > 80 else ""))
+                cleaned_preview = html.escape(cleaned[:60] + ("…" if len(cleaned) > 60 else ""))
+                pred_display = html.escape(str(pred))
 
                 st.markdown(f"""
                 <div class='result-item'>
@@ -484,13 +488,13 @@ AIR FILTER FOR DIESEL ENGINE"""
                             <div style='font-size:12px; color:#7a8099; margin-bottom:4px;'>
                                 Product {i}
                             </div>
-                            <div style='font-weight:500; margin-bottom:6px;'>{raw[:80]}{"…" if len(raw)>80 else ""}</div>
+                            <div style='font-weight:500; margin-bottom:6px;'>{raw_preview}</div>
                             <span class='badge'>Cleaned</span>
                             {"<span class='badge badge-purple'>Reformulated</span>" if reformulated else ""}
-                            <span style='font-size:13px; color:#a0aab8;'>{cleaned[:60]}{"…" if len(cleaned)>60 else ""}</span>
+                            <span style='font-size:13px; color:#a0aab8;'>{cleaned_preview}</span>
                         </div>
                         <div style='text-align:right; min-width:110px;'>
-                            <div class='hs-code'>{pred}</div>
+                            <div class='hs-code'>{pred_display}</div>
                             <div style='font-size:12px; color:#7a8099; margin-top:6px;'>conf: {confidence:.2f}</div>
                         </div>
                     </div>
@@ -509,21 +513,24 @@ AIR FILTER FOR DIESEL ENGINE"""
                             code = doc.get("doc_id") or doc.get("hs_code", "")
                             score = doc.get("score", 0)
                             text = doc.get("text", "")
+                            code_display = html.escape(str(code))
+                            text_preview = html.escape(text[:120] + ("…" if len(text) > 120 else ""))
                             st.markdown(f"""
                             <div style='background:#1e2330; border-radius:8px; padding:10px 14px; margin-bottom:6px;'>
                                 <span class='badge'>#{rank}</span>
-                                <span style='font-family:"Space Mono",monospace; color:#00e5ff;'>{code}</span>
+                                <span style='font-family:"Space Mono",monospace; color:#00e5ff;'>{code_display}</span>
                                 <span style='color:#7a8099; font-size:12px; float:right;'>score: {score:.4f}</span>
-                                <div style='font-size:13px; color:#a0aab8; margin-top:4px;'>{text[:120]}{"…" if len(text)>120 else ""}</div>
+                                <div style='font-size:13px; color:#a0aab8; margin-top:4px;'>{text_preview}</div>
                             </div>
                             """, unsafe_allow_html=True)
 
                     if reasoning:
+                        reasoning_preview = html.escape(reasoning[:400] + ("…" if len(reasoning) > 400 else ""))
                         st.markdown("**LLM Reasoning:**")
                         st.markdown(f"""
                         <div style='background:#1e2330; border-radius:8px; padding:12px 14px;
                                     font-size:13px; color:#a0aab8; line-height:1.6;'>
-                        {reasoning[:400]}{"…" if len(reasoning)>400 else ""}
+                        {reasoning_preview}
                         </div>
                         """, unsafe_allow_html=True)
         else:
