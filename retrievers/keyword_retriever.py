@@ -1,10 +1,17 @@
 import json
 import re
+import math
+from collections import Counter
 
 
 class KeywordRetriever:
     """
-    Rule-based keyword matching retriever
+    Rule-based keyword matching retriever with TF-IDF-style scoring.
+
+    Improvements over original:
+    - IDF weighting: rare terms score higher than common ones
+    - Length normalization: short queries aren't penalized unfairly
+    - Partial stemming retained from original
     """
 
     def __init__(self, h6_path: str):
@@ -21,13 +28,33 @@ class KeywordRetriever:
             ):
                 self.data[item["id"]] = {
                     "description": item["text"],
-                    "isLeaf": item.get("isLeaf", "0")
+                    "isLeaf": item.get("isLeaf", "0"),
                 }
 
+        # Pre-tokenize all descriptions
         self.tokenized_data = {}
         for code, info in self.data.items():
             tokens = self._tokenize(info["description"])
             self.tokenized_data[code] = tokens
+
+        # Build IDF weights
+        self._idf = self._build_idf()
+
+    def _build_idf(self) -> dict:
+        """
+        Compute inverse document frequency for each term across the corpus.
+        IDF = log((N + 1) / (df + 1)) + 1  (smoothed)
+        """
+        N = len(self.tokenized_data)
+        df: Counter = Counter()
+        for tokens in self.tokenized_data.values():
+            for t in set(tokens):
+                df[t] += 1
+
+        idf = {}
+        for term, count in df.items():
+            idf[term] = math.log((N + 1) / (count + 1)) + 1.0
+        return idf
 
     def search(self, query: str, top_k: int = 5):
         query_tokens = self._tokenize(query)
@@ -35,15 +62,30 @@ class KeywordRetriever:
         if not query_tokens:
             return []
 
+        query_set = set(query_tokens)
         scores = {}
-        for code, doc_tokens in self.tokenized_data.items():
-            score = self._calculate_score(query_tokens, doc_tokens)
-            if score > 0:
-                scores[code] = score
 
+        for code, doc_tokens in self.tokenized_data.items():
+            doc_set = set(doc_tokens)
+            matched = query_set.intersection(doc_set)
+
+            if not matched:
+                continue
+
+            # IDF-weighted intersection score, normalized by query length
+            idf_score = sum(self._idf.get(t, 1.0) for t in matched)
+            max_idf = sum(self._idf.get(t, 1.0) for t in query_set)
+
+            if max_idf > 0:
+                scores[code] = idf_score / max_idf
+            else:
+                scores[code] = 0.0
+
+        # Normalize to [0, 1]
         if scores:
             max_score = max(scores.values())
-            scores = {k: v / max_score for k, v in scores.items()}
+            if max_score > 0:
+                scores = {k: v / max_score for k, v in scores.items()}
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
@@ -54,7 +96,7 @@ class KeywordRetriever:
                 "score": float(score),
                 "text": self.data[code]["description"],
                 "rank": rank,
-                "source": "keyword"
+                "source": "keyword",
             })
 
         return results
@@ -75,14 +117,6 @@ class KeywordRetriever:
             tokens.append(token)
 
         return tokens
-
-    def _calculate_score(self, query_tokens, doc_tokens):
-        query_set = set(query_tokens)
-        doc_set = set(doc_tokens)
-        matches = len(query_set.intersection(doc_set))
-        if query_set:
-            return matches / len(query_set)
-        return 0
 
     def _normalize(self, token):
         if token.endswith("ies") and len(token) > 4:

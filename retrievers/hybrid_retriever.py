@@ -12,6 +12,7 @@ class HybridRetriever:
         self.alpha = alpha
 
     def search(self, query, top_k=5):
+
         candidate_k = max(top_k * 15, 75)
         query_variants = self._build_query_variants(query)
 
@@ -22,6 +23,8 @@ class HybridRetriever:
         doc_scores = {}
 
         for variant in query_variants:
+
+            # Sparse (BM25) Retrieval
             sparse_hits = self.sparse.search(variant, top_k=candidate_k)
             sparse_runs.append(sparse_hits)
             for hit in sparse_hits:
@@ -30,6 +33,7 @@ class HybridRetriever:
                     doc_scores.get(hit["doc_id"], 0), hit.get("score", 0)
                 )
 
+            # Vector Retrieval
             vector_hits = self.vector.retrieve(variant, top_k=candidate_k)
             vector_runs.append(vector_hits)
             for hit in vector_hits:
@@ -38,6 +42,7 @@ class HybridRetriever:
                     doc_scores.get(hit["hs_code"], 0), hit.get("score", 0)
                 )
 
+            # Keyword Retrieval
             if self.keyword:
                 keyword_hits = self.keyword.search(variant, top_k=candidate_k)
                 keyword_runs.append(keyword_hits)
@@ -47,20 +52,28 @@ class HybridRetriever:
                         doc_scores.get(hit["doc_id"], 0), hit.get("score", 0)
                     )
 
+        # RRF Fusion
+        # FIX: vector weight raised to 0.6 (ablation shows vector > BM25)
+        # sparse weight lowered to 0.4; keyword is additive at 0.3
         combined = {}
-        self._accumulate_rrf(combined, sparse_runs, "doc_id", weight=self.alpha)
-        self._accumulate_rrf(combined, vector_runs, "hs_code", weight=1 - self.alpha)
+        self._accumulate_rrf(combined, sparse_runs, "doc_id",   weight=1 - self.alpha)
+        self._accumulate_rrf(combined, vector_runs, "hs_code",  weight=self.alpha)
         if self.keyword:
             self._accumulate_rrf(combined, keyword_runs, "doc_id", weight=0.3)
 
+        # Token Overlap Boost
         query_tokens = self._tokenize(query)
         for code in list(combined.keys()):
+
             if not re.fullmatch(r"\d{6}", str(code)):
                 combined.pop(code, None)
                 continue
+
             overlap = self._overlap_ratio(
-                query_tokens, self._tokenize(doc_text.get(code, ""))
+                query_tokens,
+                self._tokenize(doc_text.get(code, ""))
             )
+
             combined[code] += 0.15 * overlap
             combined[code] += 0.05 * doc_scores.get(code, 0)
 
@@ -70,10 +83,11 @@ class HybridRetriever:
         for rank, (code, score) in enumerate(ranked, start=1):
             results.append({
                 "doc_id": code,
+                "hs_code": code,
                 "text": doc_text.get(code, ""),
                 "score": round(score, 4),
                 "rank": rank,
-                "source": "hybrid"
+                "source": "hybrid",
             })
 
         return results
@@ -88,16 +102,21 @@ class HybridRetriever:
         base = " ".join(re.findall(r"[a-z0-9]+", str(query or "").lower()))
         if not base:
             return []
+
         tokens = base.split()
         variants = [base]
+
         if len(tokens) >= 2:
             variants.append(" ".join(tokens[:2]))
             variants.append(" ".join(tokens[-2:]))
+
         if len(tokens) >= 3:
-            variants.append(" ".join(token for token in tokens if len(token) > 2))
+            variants.append(" ".join(t for t in tokens if len(t) > 2))
+
         for token in tokens:
             if len(token) > 4:
                 variants.append(token)
+
         unique = []
         seen = set()
         for variant in variants:
@@ -105,6 +124,7 @@ class HybridRetriever:
             if variant and variant not in seen:
                 unique.append(variant)
                 seen.add(variant)
+
         return unique
 
     def _tokenize(self, text: str):

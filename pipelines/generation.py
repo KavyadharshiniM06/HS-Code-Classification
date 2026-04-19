@@ -8,7 +8,7 @@ class HSCodeGenerator:
         self,
         llm,
         max_tokens=128,
-        temperature=0.1
+        temperature=0.1,
     ):
         self.llm = llm
         self.max_tokens = max_tokens
@@ -18,7 +18,7 @@ class HSCodeGenerator:
         scores = re.findall(r"CONFIDENCE:\s*([0-9.]+)%", context)
         if not scores:
             return 0.5
-        scores = [float(s) / 100 for s in scores]
+        scores = [float(s) / 100.0 for s in scores]
         return sum(scores[:3]) / min(len(scores), 3)
 
     def generate(self, query: str, augmented_context: str) -> Dict:
@@ -26,7 +26,7 @@ class HSCodeGenerator:
             return {
                 "prediction": None,
                 "confidence": 0.0,
-                "reasoning": "No supporting evidence retrieved."
+                "reasoning": "No supporting evidence retrieved.",
             }
 
         prompt = self._build_prompt(query, augmented_context)
@@ -34,12 +34,12 @@ class HSCodeGenerator:
         response = self.llm.generate(
             prompt=prompt,
             max_tokens=self.max_tokens,
-            temperature=self.temperature
+            temperature=self.temperature,
         )
 
         parsed = self._parse_response(response)
 
-        valid_codes = re.findall(r'HS CODE:\s*(\d{6})', augmented_context)
+        valid_codes = re.findall(r"HS CODE:\s*(\d{6})", augmented_context)
 
         if parsed["prediction"] not in valid_codes:
             parsed["confidence"] *= 0.5
@@ -49,7 +49,7 @@ class HSCodeGenerator:
         if parsed["confidence"] > 0:
             parsed["confidence"] = round(
                 (parsed["confidence"] * 0.7) + (retrieval_conf * 0.3),
-                3
+                3,
             )
 
         return parsed
@@ -79,24 +79,30 @@ Answer:"""
         result = {
             "prediction": None,
             "confidence": 0.0,
-            "reasoning": text.strip()
+            "reasoning": text.strip(),
         }
 
-        matches = re.findall(r'\b(\d{6})\b', text)
+        # Extract 6-digit HS code
+        matches = re.findall(r"\b(\d{6})\b", text)
+        hs_match = bool(matches)   # FIX: was referenced before assignment below
+
         if matches:
             result["prediction"] = Counter(matches).most_common(1)[0][0]
 
-        conf_match = re.search(r'\b(0\.\d+|1\.0|1)\b', text)
+        # Extract confidence score
+        conf_match = re.search(r"\b(0\.\d+|1\.0|1)\b", text)
         if conf_match:
             try:
                 result["confidence"] = float(conf_match.group(1))
             except ValueError:
                 result["confidence"] = 0.5
 
+        # Extract reasoning
         if "REASONING:" in text:
             result["reasoning"] = text.split("REASONING:")[-1].strip()
 
-        if "NONE" in text.upper() and not matches:
+        # FIX: use the hs_match bool we already computed above
+        if "NONE" in text.upper() and not hs_match:
             result["prediction"] = None
             result["confidence"] = 0.0
 
