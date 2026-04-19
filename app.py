@@ -254,6 +254,77 @@ hr { border-color: var(--border) !important; }
 """, unsafe_allow_html=True)
 
 
+# ── Display helpers ────────────────────────────────────────────────────────────
+def sanitize_preview_text(text, max_len=None, prefer_span=False):
+    value = str(text or "")
+    if prefer_span:
+        span_match = re.search(r"<span[^>]*>(.*?)</span>", value, flags=re.IGNORECASE | re.DOTALL)
+        if span_match:
+            value = span_match.group(1)
+
+    value = html.unescape(value)
+    value = re.sub(r"<[^>]+>", " ", value)
+    value = re.sub(r"\bconf:\s*\d+(?:\.\d+)?\b", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"\s+", " ", value).strip(" -:|")
+
+    if max_len and len(value) > max_len:
+        value = value[:max_len].rstrip() + "…"
+
+    return html.escape(value)
+
+
+def render_reformulation_trace(trace, reformulated):
+    if not trace:
+        return
+
+    status_label = "Reformulated" if reformulated else "No reformulation needed"
+    status_color = "#a78bfa" if reformulated else "#00c896"
+    status_copy = (
+        "Adaptive reformulation triggered because the initial retrieval confidence was below threshold."
+        if reformulated
+        else "The first retrieval pass was strong enough, so no extra reformulation step was needed."
+    )
+
+    cards = []
+    for step in trace:
+        iteration = step.get("iteration", 0)
+        query = sanitize_preview_text(step.get("query", ""), max_len=140)
+        score = float(step.get("top_score", 0) or 0)
+        phase = "Initial query" if iteration == 0 else f"Reformulation {iteration}"
+        cards.append(
+            f"<div style='background:#161a23; border:1px solid #2a2f3d; border-radius:10px; "
+            f"padding:12px 14px; margin-top:8px;'>"
+            f"<div style='display:flex; justify-content:space-between; gap:12px; align-items:center;'>"
+            f"<div style='font-family:\"Space Mono\",monospace; font-size:11px; letter-spacing:1px; color:#7a8099;'>"
+            f"{phase}"
+            f"</div>"
+            f"<div style='font-family:\"Space Mono\",monospace; font-size:12px; color:#00e5ff;'>"
+            f"score: {score:.4f}"
+            f"</div>"
+            f"</div>"
+            f"<div style='margin-top:8px; color:#e8eaf0; font-size:13px; line-height:1.5;'>"
+            f"{query}"
+            f"</div>"
+            f"</div>"
+        )
+
+    panel_html = (
+        f"<div style='background:#1e2330; border-radius:10px; padding:14px 16px; margin-bottom:14px;'>"
+        f"<div style='display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:6px;'>"
+        f"<div style='font-weight:600; color:#e8eaf0;'>Adaptive Retrieval</div>"
+        f"<div style='font-family:\"Space Mono\",monospace; font-size:11px; letter-spacing:1px; color:{status_color};'>"
+        f"{status_label}"
+        f"</div>"
+        f"</div>"
+        f"<div style='font-size:13px; color:#a0aab8; line-height:1.6;'>"
+        f"{html.escape(status_copy)}"
+        f"</div>"
+        f"{''.join(cards)}"
+        f"</div>"
+    )
+    st.markdown(panel_html, unsafe_allow_html=True)
+
+
 # ── Helper: lazy pipeline loader ───────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def load_pipeline(
@@ -477,9 +548,14 @@ AIR FILTER FOR DIESEL ENGINE"""
                 candidates = item.get("retrieved_candidates", [])
                 reformulated = item.get("reformulated", False)
                 reformulation_trace = item.get("reformulation_trace", [])
-                raw_preview = html.escape(raw[:80] + ("…" if len(raw) > 80 else ""))
-                cleaned_preview = html.escape(cleaned[:60] + ("…" if len(cleaned) > 60 else ""))
-                pred_display = html.escape(str(pred))
+                raw_preview = sanitize_preview_text(raw, max_len=80)
+                cleaned_preview = sanitize_preview_text(cleaned, max_len=60, prefer_span=True)
+                pred_display = sanitize_preview_text(pred)
+                status_badge = (
+                    "<span class='badge badge-purple'>Reformulated</span>"
+                    if reformulated else
+                    "<span class='badge badge-green'>Direct match</span>"
+                )
 
                 st.markdown(f"""
                 <div class='result-item'>
@@ -490,7 +566,7 @@ AIR FILTER FOR DIESEL ENGINE"""
                             </div>
                             <div style='font-weight:500; margin-bottom:6px;'>{raw_preview}</div>
                             <span class='badge'>Cleaned</span>
-                            {"<span class='badge badge-purple'>Reformulated</span>" if reformulated else ""}
+                            {status_badge}
                             <span style='font-size:13px; color:#a0aab8;'>{cleaned_preview}</span>
                         </div>
                         <div style='text-align:right; min-width:110px;'>
@@ -502,10 +578,7 @@ AIR FILTER FOR DIESEL ENGINE"""
                 """, unsafe_allow_html=True)
 
                 with st.expander(f"🔎 Candidates & reasoning — Product {i}"):
-                    if reformulated:
-                        st.markdown("**Adaptive reformulation triggered for this line.**")
-                        if reformulation_trace:
-                            st.code("\n".join(str(step) for step in reformulation_trace), language="text")
+                    render_reformulation_trace(reformulation_trace, reformulated)
 
                     if candidates:
                         st.markdown("**Top retrieved candidates:**")
@@ -513,8 +586,8 @@ AIR FILTER FOR DIESEL ENGINE"""
                             code = doc.get("doc_id") or doc.get("hs_code", "")
                             score = doc.get("score", 0)
                             text = doc.get("text", "")
-                            code_display = html.escape(str(code))
-                            text_preview = html.escape(text[:120] + ("…" if len(text) > 120 else ""))
+                            code_display = sanitize_preview_text(code)
+                            text_preview = sanitize_preview_text(text, max_len=120)
                             st.markdown(f"""
                             <div style='background:#1e2330; border-radius:8px; padding:10px 14px; margin-bottom:6px;'>
                                 <span class='badge'>#{rank}</span>
@@ -525,7 +598,7 @@ AIR FILTER FOR DIESEL ENGINE"""
                             """, unsafe_allow_html=True)
 
                     if reasoning:
-                        reasoning_preview = html.escape(reasoning[:400] + ("…" if len(reasoning) > 400 else ""))
+                        reasoning_preview = sanitize_preview_text(reasoning, max_len=400)
                         st.markdown("**LLM Reasoning:**")
                         st.markdown(f"""
                         <div style='background:#1e2330; border-radius:8px; padding:12px 14px;
